@@ -1,8 +1,5 @@
 # Team-111
- Team 111's group project GitHub repository for MGT 6203 (Canvas) Spring of 2024 semester.
- 
- MGT 6203: Data Analytics in Business
- 
+  
  Team 111		Brian McClure, Richard Han, Maysam Molana, John Redden 
  
  **Factors Influencing Success in Online College**
