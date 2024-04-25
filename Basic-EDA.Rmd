@@ -1,0 +1,226 @@
+---
+title: "Basic EDA"
+author: "John Redden"
+date: "2024-04-07"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(corrplot)
+```
+## Fail/Withdraw Basic EDA
+```{r}
+studentDf <- read.csv("rawdata/studentInfo.csv")
+
+# New variable 'binary_result'
+studentDf$binary_result <- ifelse(studentDf$final_result == "Distinction" | studentDf$final_result == "Pass", "Pass", "Fail")
+studentDf$pass <- ifelse(studentDf$final_result == "Distinction" | studentDf$final_result == "Pass", "Pass", "Fail")
+
+studentDf$imd_band[studentDf$imd_band == ""] <- NA
+studentDf$imd_band[studentDf$imd_band == "10-20"] <- "10-20%"
+studentDf <- na.omit(studentDf)
+
+studentDf$code_module <- factor(studentDf$code_module)
+studentDf$code_presentation <- factor(studentDf$code_presentation)
+studentDf$gender <- factor(studentDf$gender)
+studentDf$region <- factor(studentDf$region)
+studentDf$highest_education <- factor(studentDf$highest_education)
+studentDf$imd_band <- factor(studentDf$imd_band)
+studentDf$age_band <- factor(studentDf$age_band)
+studentDf$disability <- factor(studentDf$disability)
+studentDf$final_result <- factor(studentDf$final_result)
+studentDf$binary_result<- factor(studentDf$binary_result)
+
+# Adjust factor levels
+studentDf$binary_result <- factor(studentDf$binary_result, levels = c("Pass", "Fail"))
+studentDf$final_result <- factor(studentDf$final_result, levels = c("Distinction", "Pass", "Withdrawn", "Fail"))
+
+str(studentDf)
+```
+## Counts
+
+```{r}
+# Count the number of records for each final_result
+result_counts <- studentDf %>%
+  group_by(final_result) %>%
+  summarise(Count = n())
+head(result_counts)
+
+pass_counts <- studentDf %>%
+  group_by(binary_result) %>%
+  summarise(Count = n())
+head(pass_counts)
+
+```
+
+# Visualize the Results
+
+```{r}
+ggplot(data = result_counts, aes(x = final_result, y = Count, fill = final_result)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Count), vjust = -0.3, size = 3.5) +
+  scale_fill_manual(values = c("Distinction" = "gray", "Pass" = "gray", "Withdrawn" = "orange", "Fail" = "red")) +
+  labs(title = "Count of Student Final Results", x = "Final Result", y = "Count") +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+```
+
+##  Combine Distinction/Pass for Comparisons
+
+```{r}
+studentDf <- studentDf %>%
+  mutate(plot_result = ifelse(final_result == "Withdrawn", "Withdrawn", as.character(pass)))
+
+# Calculate the counts and percentages for each result category
+result_counts <- studentDf %>%
+  count(plot_result) %>%
+  mutate(Percent = paste0(round((n / sum(n)) * 100, 1), "%"))
+
+# Set the factor levels to ensure the order of the bars in the plot
+result_counts$plot_result <- factor(result_counts$plot_result, levels = c("Pass", "Withdrawn", "Fail"))
+
+ggplot(data = result_counts, aes(x = plot_result, y = n, fill = plot_result)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste(n, " (", Percent, ")", sep = "")), 
+            vjust = -0.3, size = 3.5, position = position_dodge(width = 0.9)) +
+  scale_fill_manual(values = c("Pass" = "gray", "Withdrawn" = "orange", "Fail" = "red")) +
+  labs(title = "Aggregate Count of Student Results", x = "Result", y = "Count") +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+
+```
+
+## Visualize Rates for each Module
+```{r}
+studentDf$combined_result <- ifelse(studentDf$final_result == "Withdrawn", "Withdrawn", 
+                                    ifelse(studentDf$pass == "Pass", "Pass", "Fail"))
+
+# Count the number of each result type within each code_module
+result_counts <- studentDf %>%
+  group_by(code_module, combined_result) %>%
+  summarise(Count = n(), .groups = 'drop')
+
+# Set the factor levels for combined_result to ensure the order of the bars
+result_counts$combined_result <- factor(result_counts$combined_result, 
+                                       levels = c("Pass", "Withdrawn", "Fail"))
+
+# Plot the graph
+ggplot(result_counts, aes(x = code_module, y = Count, fill = combined_result)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.75)) +
+  scale_fill_manual(values = c("Pass" = "gray", "Withdrawn" = "orange", "Fail" = "red")) +
+  labs(title = "Comparison of Result Status by Code Module",
+       x = "Code Module",
+       y = "Count") +
+  theme_minimal() +
+  theme(legend.title = element_blank(), legend.position = "bottom")
+
+```
+
+
+## Significant Features for "Withdrawn" aggregate Cohort
+
+```{r}
+studentDf$withdrawn <- as.factor(ifelse(studentDf$final_result == "Withdrawn", 1, 0))
+
+modelWithdrawn <- glm(withdrawn ~ code_module + gender + region + highest_education + imd_band + age_band + num_of_prev_attempts + studied_credits + disability, 
+             family = binomial(link = "logit"), 
+             data = studentDf)
+
+summary(modelWithdrawn)
+
+```
+
+**Intercept**: The log odds of a student withdrawing when all other predictor variables are held at their reference levels.
+
+**Code Module**: The baseline course is "AAA", and the coefficients for other modules indicate their difference in log odds of withdrawing compared to "AAA". For instance, "CCC" (1.4690) has a higher log odds of withdrawal, suggesting students in this module are more likely to withdraw compared to those in "AAA".
+
+**Gender (M)**: The coefficient for males (-0.1150) suggests males are slightly less likely to withdraw compared to females (the reference group), all else being equal.
+
+**Region**: Different regions have different impacts on withdrawal likelihood. For example, students from the "Scotland" region (-0.2401) are less likely to withdraw than those from the reference region.
+
+**Highest Education**: "Lower Than A Level" (0.4018) significantly increases the likelihood of withdrawal, suggesting students with lower initial education levels are more prone to withdrawal.
+
+**IMD Band**: Students from higher IMD bands (indicative of less deprivation) are generally less likely to withdraw, with "90-100%" (-0.4156) showing a substantial decrease in the likelihood of withdrawal.
+
+**Studied Credits (0.0084)**: A positive coefficient indicates that with every additional credit studied, the likelihood of withdrawal slightly increases.
+
+**Disability (Y)**: Having a disability (0.3065) increases the likelihood of withdrawal.
+
+## Significant Features for "Fail"
+
+```{r}
+studentDf$fail <- as.factor(ifelse(studentDf$final_result == "Fail", 1, 0))
+
+modelFail <- glm(fail ~ code_module + gender + region + highest_education + imd_band + age_band + num_of_prev_attempts + studied_credits + disability, 
+             family = binomial(link = "logit"), 
+             data = studentDf)
+
+# Summary of the model to see coefficients and their significance
+summary(modelFail)
+```
+
+**Code Module**: Different modules have varying risks of failure; for instance, code_moduleGGG significantly increases the likelihood of failing, showing that the module's content or structure may have a higher difficulty or different characteristics affecting student performance.
+
+**Gender**: Males are more likely to fail than females.
+
+**Region**: The effect of the region is mixed; some regions like Scotland significantly increase the risk of failing, while others like the East Midlands Region decrease it. This might reflect socioeconomic or educational disparities.
+
+**Highest Education**: Having a lower than A level education significantly increases the likelihood of failing, indicating prior educational attainment's impact on current studies.
+
+**IMD Band**: Lower IMD bands (indicating higher deprivation) are associated with a higher likelihood of failing, especially noticeable in the most deprived bands (imd_band60-70%, imd_band80-90%, and imd_band90-100%).
+
+**Age Band**: Older age bands (age_band35-55) show a significant negative effect on failing, suggesting that younger students might be at a higher risk of failing.
+
+**Number of Previous Attempts**: An interesting positive coefficient suggests that with each additional attempt, the odds of failing increase, possibly indicating accumulating difficulties or challenges in overcoming academic hurdles.
+
+**studied Credits**: Interestingly, more studied credits are associated with a slightly lower likelihood of failing, contrary to what one might expect.
+
+
+## Associations
+
+```{r}
+
+# Remove the binary_result and final_result columns 
+factor_df <- studentDf %>% select_if(is.factor) %>% 
+  select(-binary_result, -final_result)
+
+# Calculate Cramer's V
+cramers_v <- function(tab) {
+  n <- sum(tab)  # Total observations
+  phi_sq <- chisq.test(tab)$statistic
+  min_dim <- min(nrow(tab)-1, ncol(tab)-1)
+  return(sqrt(phi_sq / (n * min_dim)))
+}
+
+results <- matrix(NA, ncol = length(factor_df), nrow = length(factor_df),
+                  dimnames = list(names(factor_df), names(factor_df)))
+
+# Loop over all pairs of factor columns and calculate Cramer's V
+for (i in 1:(length(factor_df)-1)) {
+  for (j in (i+1):length(factor_df)) {
+    
+    tab <- table(factor_df[, i], factor_df[, j])
+    
+    results[i, j] <- cramers_v(tab)
+    results[j, i] <- results[i, j]
+  }
+}
+
+results_df <- as.data.frame(as.table(results))
+
+ggplot(results_df, aes(Var1, Var2, fill = Freq)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0.1, limit = c(0,1), space = "Lab", 
+                       name="Cramer's V") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(x = '', y = '', title = 'Heatmap of Cramer\'s V (Excluding binary_result and final_result)')
+
+
+```
+
+---

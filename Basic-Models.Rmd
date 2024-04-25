@@ -1,0 +1,128 @@
+---
+title: "Basic Models - Demographics"
+author: "John Redden"
+date: "2024-04-07"
+output: html_document
+---
+
+```{r, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(stats)
+library(caret)
+library(randomForest)
+library(class)  # for KNN
+```
+
+## Load in Student Demographic Data
+
+```{r}
+studentDf <- read.csv("rawdata/studentInfo.csv")
+
+# New variable 'pass'
+studentDf$pass <- ifelse(studentDf$final_result == "Distinction" | studentDf$final_result == "Pass", "Pass", "Fail")
+
+# A bit of cleaning needed
+studentDf$imd_band[studentDf$imd_band == ""] <- NA
+studentDf$imd_band[studentDf$imd_band == "10-20"] <- "10-20%"
+studentDf <- na.omit(studentDf)
+
+studentDf$code_module <- factor(studentDf$code_module)
+studentDf$code_presentation <- factor(studentDf$code_presentation)
+studentDf$gender <- factor(studentDf$gender)
+studentDf$region <- factor(studentDf$region)
+studentDf$highest_education <- factor(studentDf$highest_education)
+studentDf$imd_band <- factor(studentDf$imd_band)
+studentDf$age_band <- factor(studentDf$age_band)
+studentDf$disability <- factor(studentDf$disability)
+studentDf$final_result <- factor(studentDf$final_result)
+studentDf$pass<- factor(studentDf$pass, levels = c("Pass", "Fail"))
+
+studentDf$studied_credits <- scale(studentDf$studied_credits)
+studentDf$num_of_prev_attempts <- scale(studentDf$num_of_prev_attempts)
+
+str(studentDf)
+```
+
+## Logistic Regression on all features. Pass = 1, Fail = 2
+
+```{r}
+# all features execpt ID and final_result
+logistic_model <- glm(pass ~ . -final_result-id_student, data=studentDf, family=binomial(link='logit'))
+
+summary(logistic_model)
+```
+
+# Logistic Regression with Significant features only w/cross validation
+Identified significant features code_module + highest_education + imd_band + num_of_prev_attempts + studied_credits + disability
+
+```{r}
+set.seed(42)
+cv_control <- trainControl(method = "cv", 
+                           number = 10, 
+                           summaryFunction = defaultSummary)
+
+cv_model <- train(pass ~ code_module + highest_education + imd_band + num_of_prev_attempts + studied_credits + disability, 
+                  data = studentDf,
+                  method = "glm",
+                  family = binomial,
+                  trControl = cv_control)
+
+predictions <- predict(cv_model, studentDf)
+conf_matrix <- confusionMatrix(predictions, studentDf$pass)
+
+print(conf_matrix)
+```
+
+## Run CV Random Forest and calculate Accuracy
+
+Random forest with cv training takes time, wait for it.
+
+```{r}
+set.seed(42)
+cv_control <- trainControl(method = "cv", 
+                           number = 5,  # number of k-folds for cv
+                           summaryFunction = defaultSummary)
+
+cv_rf_model <- train(pass ~ code_module + highest_education + imd_band + num_of_prev_attempts + studied_credits + disability, 
+                     data = studentDf,
+                     method = "rf",
+                     trControl = cv_control,
+                     tuneLength = 3) # number of mtry values
+
+predictions <- predict(cv_rf_model, studentDf)
+conf_matrix <- confusionMatrix(predictions, studentDf$pass)
+
+print(conf_matrix)
+```
+
+## Run KNN with CV
+
+KNN with cv training takes time, wait for it.
+
+```{r}
+set.seed(42)
+cv_control <- trainControl(method = "cv",
+                           number = 5, # number of k-folds for cv
+                           savePredictions = "final",
+                           summaryFunction = defaultSummary,
+                           allowParallel = TRUE)
+
+knn_model <- train(pass ~ code_module + highest_education + imd_band + num_of_prev_attempts + studied_credits + disability,
+                   data = studentDf,
+                   method = "knn",
+                   trControl = cv_control,
+                   tuneLength = 5)  # Try 5 different values for 'k'
+
+predictions <- predict(knn_model, studentDf)
+
+conf_matrix <- confusionMatrix(predictions, studentDf$pass)
+print(conf_matrix)
+
+print(knn_model$results)
+```
+
+
+
+
+

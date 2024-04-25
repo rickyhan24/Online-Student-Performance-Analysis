@@ -1,0 +1,125 @@
+---
+title: "Comprehensive-Models v2"
+author: "John Redden"
+date: "2024-04-19"
+output: html_document
+---
+## Libraries
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(stats)
+library(caret)
+library(randomForest)
+library(class)  # for KNN
+```
+
+## Load in Brians Combined Data set with Cusum work
+
+```{r}
+interactionDf <- read.csv("rawdata/comprehensive_all.csv")
+
+# clean the imd_band
+interactionDf$imd_band[interactionDf$imd_band == ""] <- NA
+interactionDf$imd_band[interactionDf$imd_band == "10-20"] <- "10-20%"
+interactionDf <- na.omit(interactionDf)
+
+interactionDf$code_module <- as.factor(interactionDf$code_module)
+interactionDf$gender <- as.factor(interactionDf$gender)
+interactionDf$highest_education <- as.factor(interactionDf$highest_education)
+interactionDf$imd_band <- as.factor(interactionDf$imd_band)
+interactionDf$age_band <- as.factor(interactionDf$age_band)
+interactionDf$disability <- as.factor(interactionDf$disability)
+
+interactionDf$binary <- as.factor(interactionDf$binary)
+
+interactionDf$studied_credits <- scale(interactionDf$studied_credits)
+interactionDf$Cu33 <- scale(interactionDf$Cu33)
+interactionDf$total_clicks  <- scale(interactionDf$total_clicks )
+
+str(interactionDf)
+```
+
+## Significant Features
+
+```{r}
+logistic_model <- glm(binary ~ . -X, data=interactionDf, family=binomial(link='logit'))
+
+summary(logistic_model)
+```
+
+# Now regress on Significant Features
+
+```{r}
+
+revised_logistic_model <- glm(binary ~ code_module+highest_education+imd_band+Cu33+zero_day_ratio+total_clicks, 
+                              data=interactionDf, 
+                              family=binomial(link='logit'))
+
+summary(revised_logistic_model)
+
+set.seed(42) 
+cv_control <- trainControl(method = "cv", 
+                           number = 5, 
+                           summaryFunction = defaultSummary)
+
+cv_model <- train(revised_logistic_model$formula,
+                  data = interactionDf,
+                  method = "glm",
+                  family = "binomial",
+                  trControl = cv_control)
+
+predictions <- predict(cv_model, interactionDf)
+conf_matrix <- confusionMatrix(predictions, interactionDf$binary)
+
+print(conf_matrix)
+```
+
+# Random Forest
+
+```{r}
+set.seed(42)
+cv_control <- trainControl(method = "cv", 
+                           number = 5,  # number of k-folds for cv
+                           summaryFunction = defaultSummary)
+
+cv_rf_model <- train(binary ~ code_module + highest_education + imd_band + 
+                      Cu33 + zero_day_ratio + total_clicks, 
+                     data = interactionDf,
+                     method = "rf",
+                     trControl = cv_control,
+                     tuneLength = 1) # number of mtry values
+
+predictions <- predict(cv_rf_model, interactionDf)
+
+conf_matrix <- confusionMatrix(predictions, interactionDf$binary)
+
+print(conf_matrix)
+
+```
+
+# KNN training
+
+```{r}
+set.seed(42)
+cv_control <- trainControl(method = "cv", 
+                           number = 5,  # number of k-folds for cv
+                           summaryFunction = defaultSummary)
+
+cv_rf_model <- train(binary ~ code_module + highest_education + imd_band + 
+                      Cu33 + zero_day_ratio + total_clicks, 
+                     data = interactionDf,
+                     method = "knn",
+                     trControl = cv_control,
+                     tuneLength = 1) # number of mtry values
+
+predictions <- predict(cv_rf_model, interactionDf)
+
+conf_matrix <- confusionMatrix(predictions, interactionDf$binary)
+
+print(conf_matrix)
+```
+
+
+

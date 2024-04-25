@@ -1,0 +1,196 @@
+---
+title: "Demographics+VLE Models"
+author: "John Redden"
+date: "2024-04-20"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(stats)
+library(caret)
+library(randomForest)
+library(class)  # for KNN
+library(car)
+```
+
+## Load in the TWO Datasets
+
+Load in the studentInfo.csv demographic data and clean the imd_band.
+
+```{r, message=FALSE}
+studentDf <- read.csv("rawdata/studentInfo.csv")
+
+studentDf$pass <- ifelse(studentDf$final_result == "Distinction" | studentDf$final_result == "Pass", "Pass", "Fail")
+
+studentDf$imd_band[studentDf$imd_band == ""] <- NA
+studentDf$imd_band[studentDf$imd_band == "10-20"] <- "10-20%"
+studentDf <- na.omit(studentDf)
+
+studentDf$code_module <- factor(studentDf$code_module)
+studentDf$code_presentation <- factor(studentDf$code_presentation)
+studentDf$gender <- factor(studentDf$gender)
+studentDf$region <- factor(studentDf$region)
+studentDf$highest_education <- factor(studentDf$highest_education)
+studentDf$imd_band <- factor(studentDf$imd_band)
+studentDf$age_band <- factor(studentDf$age_band)
+studentDf$disability <- factor(studentDf$disability)
+studentDf$final_result <- factor(studentDf$final_result)
+studentDf$pass<- factor(studentDf$pass, levels = c("Pass", "Fail"))
+
+studentDf$studied_credits <- scale(studentDf$studied_credits)
+studentDf$num_of_prev_attempts <- scale(studentDf$num_of_prev_attempts)
+
+str(studentDf)
+```
+
+Load in new VLE data crated by Richard Han.
+
+````{r, message=FALSE}
+interactionDf <- read.csv("rawdata/vle_full_dataset.csv")
+
+interactionDf$code_module <- as.factor(interactionDf$code_module)
+interactionDf$code_presentation<- as.factor(interactionDf$code_presentation)
+
+interactionDf$mean_clicks <- scale(interactionDf$mean_clicks)
+interactionDf$total_clicks <- scale(interactionDf$total_clicks)
+
+
+str(interactionDf)
+```
+
+## Now Merge the two datasets.
+
+```{r}
+merged_df <- merge(studentDf, interactionDf, by = c("id_student","code_module", "code_presentation"), all = TRUE)
+merged_df <- na.omit(merged_df)
+
+str(merged_df)
+summary(merged_df)
+
+```
+
+Address those outliers!
+
+```{r}
+# Calculate IQR
+Q1 <- quantile(merged_df$mean_clicks, 0.25)
+Q3 <- quantile(merged_df$mean_clicks, 0.75)
+IQR <- Q3 - Q1
+
+upper_bound <- Q3 + 1.5 * IQR
+
+# Filter out outliers
+filtered_df <- merged_df[merged_df$mean_clicks <= upper_bound, ]
+
+summary(filtered_df)
+```
+
+## Identiy Significant features in merged dataset.
+
+```{r}
+logistic_model <- glm(pass ~ . -id_student - final_result.x - final_result.y, 
+                      data=filtered_df, family=binomial(link='logit'))
+
+summary(logistic_model)
+```
+
+## Test for Multicollinearity amoung these predictors!
+
+```{r}
+# Calculate VIF
+vif_values <- vif(logistic_model)
+print(vif_values)
+
+# check for VIF values greater than 10
+high_vif <- vif_values[vif_values > 10]
+print(high_vif)
+```
+## Logistic Regression with Significant features only w/cross validation
+
+Identified significant features without muticolinearity: code_module + highest_education + imd_band + 
+                  zero_day_ratio + total_clicks
+
+```{r}
+set.seed(42)
+cv_control <- trainControl(method = "cv", 
+                           number = 5,  # number of k-folds for cv
+                           summaryFunction = defaultSummary)
+
+cv_model <- train(pass ~ code_module + highest_education + imd_band + 
+                  zero_day_ratio + total_clicks,
+                  data = filtered_df,
+                  method = "glm",
+                  family = binomial,
+                  trControl = cv_control)
+
+predictions <- predict(cv_model, filtered_df)
+conf_matrix <- confusionMatrix(predictions, filtered_df$pass)
+
+print(conf_matrix)
+```
+
+## Run CV Random Forest and calculate Accuracy
+
+```{r}
+set.seed(42)
+cv_control <- trainControl(method = "cv", 
+                           number = 5,  # number of k-folds for cv
+                           summaryFunction = defaultSummary)
+
+cv_rf_model <- train(pass ~ code_module + highest_education + imd_band + 
+                    zero_day_ratio + total_clicks, 
+                     data = filtered_df,
+                     method = "rf",
+                     trControl = cv_control,
+                     tuneLength = 1) # number of mtry values
+
+predictions <- predict(cv_rf_model, filtered_df)
+
+conf_matrix <- confusionMatrix(predictions, filtered_df$pass)
+
+print(conf_matrix)
+```
+
+
+## Run KNN with CV
+
+```{r}
+set.seed(42)
+cv_control <- trainControl(method = "cv",
+                           number = 5,
+                           savePredictions = "final",
+                           summaryFunction = defaultSummary,
+                           allowParallel = TRUE)
+
+knn_model <- train(pass ~ code_module + highest_education + imd_band + 
+                    zero_day_ratio + total_clicks,
+                   data = filtered_df,
+                   method = "knn",
+                   trControl = cv_control,
+                   tuneLength = 1)  # Try different values for 'k'
+
+predictions <- predict(knn_model, filtered_df)
+
+conf_matrix <- confusionMatrix(predictions, filtered_df$pass)
+print(conf_matrix)
+
+print(knn_model$results)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

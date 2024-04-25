@@ -1,0 +1,90 @@
+---
+title: "EffectOfPoverty"
+author: "John Redden"
+date: "2024-04-09"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+studentDf <- read.csv("rawdata/studentInfo.csv")
+studentDf$pass <- ifelse(studentDf$final_result == "Distinction" | studentDf$final_result == "Pass", "Pass", "Fail")
+
+studentDf$imd_band[studentDf$imd_band == ""] <- NA
+studentDf$imd_band[studentDf$imd_band == "10-20"] <- "10-20%"
+studentDf <- na.omit(studentDf)
+
+studentDf$code_module <- factor(studentDf$code_module)
+studentDf$code_presentation <- factor(studentDf$code_presentation)
+studentDf$gender <- factor(studentDf$gender)
+studentDf$region <- factor(studentDf$region)
+studentDf$highest_education <- factor(studentDf$highest_education)
+studentDf$imd_band <- factor(studentDf$imd_band)
+studentDf$age_band <- factor(studentDf$age_band)
+studentDf$disability <- factor(studentDf$disability)
+studentDf$final_result <- factor(studentDf$final_result)
+studentDf$pass<- factor(studentDf$pass)
+
+# Adjust factor levels
+studentDf$pass <- factor(studentDf$pass, levels = c("Pass", "Fail"))
+studentDf$final_result <- factor(studentDf$final_result, levels = c("Distinction", "Pass", "Withdrawn", "Fail"))
+
+str(studentDf)
+```
+
+## IMD Graph
+
+```{r}
+
+aggDf <- studentDf %>%
+  group_by(imd_band, pass) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+ggplot(aggDf, aes(x = imd_band, y = count, group = pass, color = pass)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = c("Pass" = "#006400", "Fail" = "red")) +
+  theme_minimal() +
+  labs(x = "IMD Band", y = "Count", title = "Count of Pass and Fail by IMD Band") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(750, 2500) 
+
+
+```
+
+## Percentages?
+
+Re-create plot using percentages.
+
+```{r}
+
+aggDf <- studentDf %>%
+  group_by(imd_band, pass) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+totals <- studentDf %>%
+  group_by(imd_band) %>%
+  summarise(total = n()) %>%
+  ungroup()
+
+aggDf <- aggDf %>%
+  left_join(totals, by = "imd_band") %>%
+  mutate(percentage = (count / total) * 100) 
+
+# Plot
+ggplot(aggDf, aes(x = imd_band, y = percentage, group = pass, color = pass)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = c("Pass" = "#006400", "Fail" = "red")) +
+  theme_minimal() +
+  labs(x = "IMD Band", y = "Percentage", title = "Percentage of Pass and Fail by IMD Band") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+
